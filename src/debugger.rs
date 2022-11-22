@@ -38,6 +38,10 @@ impl Debugger {
                         // TODO (milestone 1): make the inferior run
                         // You may use self.inferior.as_mut().unwrap() to get a mutable reference
                         // to the Inferior object
+                        match self.inferior.as_mut().unwrap().cont() {
+                            Ok(status) => println!("Chils exited {:?}", status),
+                            Err(_) => panic!("Error continuing program"),
+                        }
                     } else {
                         println!("Error starting subprocess");
                     }

@@ -1,9 +1,14 @@
+// #![allow(unused)]
+
 use nix::sys::ptrace;
 use nix::sys::signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
+use std::os::unix::process::CommandExt;
 use std::process::Child;
+use std::process::Command;
 
+#[derive(Debug)]
 pub enum Status {
     /// Indicates inferior stopped. Contains the signal that stopped the process, as well as the
     /// current instruction pointer that it is stopped at.
@@ -20,10 +25,8 @@ pub enum Status {
 /// This function calls ptrace with PTRACE_TRACEME to enable debugging on a process. You should use
 /// pre_exec with Command to call this in the child process.
 fn child_traceme() -> Result<(), std::io::Error> {
-    ptrace::traceme().or(Err(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "ptrace TRACEME failed",
-    )))
+    ptrace::traceme()
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "ptrace TRACEME failed"))
 }
 
 pub struct Inferior {
@@ -34,12 +37,22 @@ impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
     pub fn new(target: &str, args: &Vec<String>) -> Option<Inferior> {
-        // TODO: implement me!
-        println!(
-            "Inferior::new not implemented! target={}, args={:?}",
-            target, args
-        );
-        None
+        let mut cmd = Command::new(target);
+        unsafe {
+            cmd.pre_exec(child_traceme);
+        }
+        let child = cmd.args(args).spawn().ok()?;
+        let inferior = Inferior { child };
+        match waitpid(inferior.pid(), None) {
+            Ok(status) => {
+                println!("{:?}", status);
+                Some(inferior)
+            }
+            Err(_) => None,
+        }
+
+        // let status = inferior.wait(None).ok()?;
+        // println!("{:?}", status);
     }
 
     /// Returns the pid of this inferior.
@@ -54,10 +67,15 @@ impl Inferior {
             WaitStatus::Exited(_pid, exit_code) => Status::Exited(exit_code),
             WaitStatus::Signaled(_pid, signal, _core_dumped) => Status::Signaled(signal),
             WaitStatus::Stopped(_pid, signal) => {
-                let regs = ptrace::getregs(self.pid())?;
-                Status::Stopped(signal, regs.rip as usize)
+                // let regs = ptrace::getregs(self.pid())?;
+                Status::Stopped(signal, 0)
             }
             other => panic!("waitpid returned unexpected status: {:?}", other),
         })
+    }
+
+    pub fn cont(&self) -> Result<Status, nix::Error> {
+        ptrace::cont(self.pid(), None)?;
+        self.wait(None)
     }
 }
