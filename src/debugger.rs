@@ -31,23 +31,41 @@ impl Debugger {
     pub fn run(&mut self) {
         loop {
             match self.get_next_command() {
-                DebuggerCommand::Run(args) => {
-                    if let Some(inferior) = Inferior::new(&self.target, &args) {
-                        // Create the inferior
-                        self.inferior = Some(inferior);
-                        // TODO (milestone 1): make the inferior run
-                        // You may use self.inferior.as_mut().unwrap() to get a mutable reference
-                        // to the Inferior object
-                        match self.inferior.as_mut().unwrap().cont() {
-                            Ok(status) => println!("Chils exited {:?}", status),
-                            Err(_) => panic!("Error continuing program"),
+                DebuggerCommand::Run(args) => match &mut self.inferior {
+                    Some(inferior) => match inferior.kill() {
+                        Ok(status) => {
+                            println!("existing child {:?}", status);
+                            self.start_deet(args);
                         }
-                    } else {
-                        println!("Error starting subprocess");
+                        Err(e) => println!("could not kill previous child {:?}", e),
+                    },
+                    None => self.start_deet(args),
+                },
+                DebuggerCommand::Cont => {
+                    if let Some(inferior) = &self.inferior {
+                        match inferior.cont() {
+                            Ok(status) => {
+                                println!("Child process {:?}", status)
+                            }
+                            Err(e) => println!("error cannot continue child process: {}", e),
+                        }
                     }
                 }
                 DebuggerCommand::Quit => {
+                    if let Some(inferior) = &mut self.inferior {
+                        match inferior.kill() {
+                            Ok(status) => {
+                                println!("existing inferior {:?}", status);
+                            }
+                            Err(e) => println!("could not kill previous inferior {:?}", e),
+                        }
+                    };
                     return;
+                }
+                DebuggerCommand::Backtrace => {
+                    if let Some(inferior) = &self.inferior {
+                        inferior.print_backtrace();
+                    }
                 }
             }
         }
@@ -91,6 +109,20 @@ impl Debugger {
                     }
                 }
             }
+        }
+    }
+
+    fn start_deet(&mut self, args: Vec<String>) {
+        if let Some(inferior) = Inferior::new(&self.target, &args) {
+            // Create the inferior
+            self.inferior = Some(inferior);
+            // TODO (milestone 1): make the inferior run
+            match self.inferior.as_mut().unwrap().cont() {
+                Ok(status) => println!("Child {:?}", status),
+                Err(_) => panic!("Error continuing program"),
+            }
+        } else {
+            println!("Error starting subprocess");
         }
     }
 }

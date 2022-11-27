@@ -1,12 +1,15 @@
 // #![allow(unused)]
 
+use nix::errno::Errno;
 use nix::sys::ptrace;
+use nix::sys::ptrace::Request;
 use nix::sys::signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 use std::os::unix::process::CommandExt;
 use std::process::Child;
 use std::process::Command;
+use std::{mem, ptr};
 
 #[derive(Debug)]
 pub enum Status {
@@ -78,4 +81,54 @@ impl Inferior {
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
     }
+
+    pub fn kill(&mut self) -> Result<Status, nix::Error> {
+        if self.child.kill().is_ok() {
+            return self.wait(None);
+        };
+        panic!("Cannot kill inferior")
+    }
+
+    pub fn print_backtrace(&self) -> Result<(), nix::Error> {
+        // unsafe {
+        //     libc::ptrace(lib::, self.pid());
+        // }
+        // if let Ok(regs) = ptrace::getsiginfo(self.pid()) {
+        //     println!("{:?}", regs);
+        // }
+
+        Ok(())
+    }
 }
+
+// //
+
+// fn ptrace_get_data<T>(request: Request, pid: Pid) -> nix::Result<T> {
+//     let mut data = mem::MaybeUninit::uninit();
+//     let res = unsafe {
+//         libc::ptrace(
+//             request as ptrace::RequestType,
+//             libc::pid_t::from(pid),
+//             ptr::null_mut::<T>(),
+//             data.as_mut_ptr() as *const _ as *const c_void,
+//         )
+//     };
+//     Errno::result(res)?;
+//     Ok(unsafe { data.assume_init() })
+// }
+
+// pub fn setregs(pid: Pid, regs: user_regs_struct) -> nix::Result<()> {
+//     let res = unsafe {
+//         libc::ptrace(
+//             Request::PTRACE_SETREGS as ptrace::RequestType,
+//             libc::pid_t::from(pid),
+//             ptr::null_mut::<c_void>(),
+//             &regs as *const _ as *const c_void,
+//         )
+//     };
+//     Errno::result(res).map(drop)
+// }
+
+// pub fn getregs(pid: Pid) -> nix::Result<user_regs_struct> {
+//     ptrace_get_data::<user_regs_struct>(Request::PTRACE_GETREGS, pid)
+// }

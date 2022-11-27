@@ -5,7 +5,6 @@
 //!
 //! This code is a huge mess. Please don't read it unless you're trying to do an extension :)
 
-use gimli;
 use gimli::{UnitOffset, UnitSectionOffset};
 use object::Object;
 use std::borrow;
@@ -327,16 +326,10 @@ fn get_attr_value<R: Reader>(
             dump_exprloc(w, unit.encoding(), data)?;
             Ok(DebugValue::Str(w.to_string()))
         }
-        gimli::AttributeValue::UnitRef(offset) => {
-            match offset.to_unit_section_offset(unit) {
-                UnitSectionOffset::DebugInfoOffset(goff) => {
-                    Ok(DebugValue::Size(goff.0))
-                }
-                UnitSectionOffset::DebugTypesOffset(goff) => {
-                    Ok(DebugValue::Size(goff.0))
-                }
-            }
-        }
+        gimli::AttributeValue::UnitRef(offset) => match offset.to_unit_section_offset(unit) {
+            UnitSectionOffset::DebugInfoOffset(goff) => Ok(DebugValue::Size(goff.0)),
+            UnitSectionOffset::DebugTypesOffset(goff) => Ok(DebugValue::Size(goff.0)),
+        },
         gimli::AttributeValue::DebugStrRef(offset) => {
             if let Ok(s) = dwarf.debug_str.get_str(offset) {
                 Ok(DebugValue::Str(format!("{}", s.to_string_lossy()?)))
@@ -356,9 +349,7 @@ fn get_attr_value<R: Reader>(
             dump_file_index(w, value, unit, dwarf)?;
             Ok(DebugValue::Str(w.to_string()))
         }
-        _ => {
-            Ok(DebugValue::NoVal)
-        }
+        _ => Ok(DebugValue::NoVal),
     }
 }
 
