@@ -44,14 +44,21 @@ impl Inferior {
         unsafe {
             cmd.pre_exec(child_traceme);
         }
-        let child = cmd.args(args).spawn().ok()?;
+        println!("{} and {:?}", target, args);
+        let child = match cmd.args(args).spawn() {
+            Ok(c) => c,
+            Err(e) => panic!("{}", e),
+        };
         let inferior = Inferior { child };
         match waitpid(inferior.pid(), None) {
             Ok(status) => {
                 println!("{:?}", status);
                 Some(inferior)
             }
-            Err(_) => None,
+            Err(e) => {
+                println!("{:?}", e);
+                None
+            }
         }
 
         // let status = inferior.wait(None).ok()?;
@@ -93,10 +100,10 @@ impl Inferior {
         // unsafe {
         //     libc::ptrace(lib::, self.pid());
         // }
-        // if let Ok(regs) = ptrace::getsiginfo(self.pid()) {
-        //     println!("{:?}", regs);
+        // match ptrace::getregs(self.pid()) {
+        //     Ok(regs) => println!("{:?}", regs),
+        //     Err(e) => println!("{}", e),
         // }
-
         Ok(())
     }
 }
