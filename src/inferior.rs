@@ -11,6 +11,8 @@ use std::process::Child;
 use std::process::Command;
 use std::{mem, ptr};
 
+use crate::dwarf_data::DwarfData;
+
 #[derive(Debug)]
 pub enum Status {
     /// Indicates inferior stopped. Contains the signal that stopped the process, as well as the
@@ -44,17 +46,13 @@ impl Inferior {
         unsafe {
             cmd.pre_exec(child_traceme);
         }
-        println!("{} and {:?}", target, args);
         let child = match cmd.args(args).spawn() {
             Ok(c) => c,
             Err(e) => panic!("{}", e),
         };
         let inferior = Inferior { child };
         match waitpid(inferior.pid(), None) {
-            Ok(status) => {
-                println!("{:?}", status);
-                Some(inferior)
-            }
+            Ok(_) => Some(inferior),
             Err(e) => {
                 println!("{:?}", e);
                 None
@@ -77,8 +75,8 @@ impl Inferior {
             WaitStatus::Exited(_pid, exit_code) => Status::Exited(exit_code),
             WaitStatus::Signaled(_pid, signal, _core_dumped) => Status::Signaled(signal),
             WaitStatus::Stopped(_pid, signal) => {
-                // let regs = ptrace::getregs(self.pid())?;
-                Status::Stopped(signal, 0)
+                let regs = ptrace::getregs(self.pid())?;
+                Status::Stopped(signal, regs.rip as usize)
             }
             other => panic!("waitpid returned unexpected status: {:?}", other),
         })
@@ -90,52 +88,27 @@ impl Inferior {
     }
 
     pub fn kill(&mut self) -> Result<Status, nix::Error> {
+        println!("Killing runnig inferior (pid {})", self.pid());
         if self.child.kill().is_ok() {
             return self.wait(None);
         };
         panic!("Cannot kill inferior")
     }
 
-    pub fn print_backtrace(&self) -> Result<(), nix::Error> {
+    pub fn print_backtrace(&self, debug_data: &DwarfData) -> Result<(), nix::Error> {
         // unsafe {
         //     libc::ptrace(lib::, self.pid());
         // }
-        // match ptrace::getregs(self.pid()) {
-        //     Ok(regs) => println!("{:?}", regs),
-        //     Err(e) => println!("{}", e),
-        // }
+        match ptrace::getregs(self.pid()) {
+            Ok(regs) => println!(
+                "{} ({})",
+                debug_data
+                    .get_function_from_addr(regs.rip as usize)
+                    .unwrap(),
+                debug_data.get_line_from_addr(regs.rip as usize).unwrap()
+            ),
+            Err(e) => println!("{}", e),
+        }
         Ok(())
     }
 }
-
-// //
-
-// fn ptrace_get_data<T>(request: Request, pid: Pid) -> nix::Result<T> {
-//     let mut data = mem::MaybeUninit::uninit();
-//     let res = unsafe {
-//         libc::ptrace(
-//             request as ptrace::RequestType,
-//             libc::pid_t::from(pid),
-//             ptr::null_mut::<T>(),
-//             data.as_mut_ptr() as *const _ as *const c_void,
-//         )
-//     };
-//     Errno::result(res)?;
-//     Ok(unsafe { data.assume_init() })
-// }
-
-// pub fn setregs(pid: Pid, regs: user_regs_struct) -> nix::Result<()> {
-//     let res = unsafe {
-//         libc::ptrace(
-//             Request::PTRACE_SETREGS as ptrace::RequestType,
-//             libc::pid_t::from(pid),
-//             ptr::null_mut::<c_void>(),
-//             &regs as *const _ as *const c_void,
-//         )
-//     };
-//     Errno::result(res).map(drop)
-// }
-
-// pub fn getregs(pid: Pid) -> nix::Result<user_regs_struct> {
-//     ptrace_get_data::<user_regs_struct>(Request::PTRACE_GETREGS, pid)
-// }

@@ -1,4 +1,7 @@
+use std::process::exit;
+
 use crate::debugger_command::DebuggerCommand;
+use crate::dwarf_data::DwarfData;
 use crate::inferior::Inferior;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -8,12 +11,24 @@ pub struct Debugger {
     history_path: String,
     readline: Editor<()>,
     inferior: Option<Inferior>,
+    debug_data: DwarfData,
 }
 
 impl Debugger {
     /// Initializes the debugger.
     pub fn new(target: &str) -> Debugger {
         // TODO (milestone 3): initialize the DwarfData
+        let debug_data = match DwarfData::from_file(target) {
+            Ok(val) => val,
+            Err(crate::dwarf_data::Error::ErrorOpeningFile) => {
+                println!("Could not open file {}", target);
+                exit(1);
+            }
+            Err(crate::dwarf_data::Error::DwarfFormatError(err)) => {
+                println!("could not open file {}: {:?}", target, err);
+                exit(1);
+            }
+        };
 
         let history_path = format!("{}/.deet_history", std::env::var("HOME").unwrap());
         let mut readline = Editor::<()>::new();
@@ -25,6 +40,7 @@ impl Debugger {
             history_path,
             readline,
             inferior: None,
+            debug_data,
         }
     }
 
@@ -33,8 +49,7 @@ impl Debugger {
             match self.get_next_command() {
                 DebuggerCommand::Run(args) => match &mut self.inferior {
                     Some(inferior) => match inferior.kill() {
-                        Ok(status) => {
-                            println!("existing child {:?}", status);
+                        Ok(_) => {
                             self.start_deet(args);
                         }
                         Err(e) => println!("could not kill previous child {:?}", e),
@@ -55,7 +70,7 @@ impl Debugger {
                     if let Some(inferior) = &mut self.inferior {
                         match inferior.kill() {
                             Ok(status) => {
-                                println!("existing inferior {:?}", status);
+                                println!("exiting inferior {:?}", status);
                             }
                             Err(e) => println!("could not kill previous inferior {:?}", e),
                         }
@@ -64,7 +79,7 @@ impl Debugger {
                 }
                 DebuggerCommand::Backtrace => {
                     if let Some(inferior) = &self.inferior {
-                        inferior.print_backtrace();
+                        inferior.print_backtrace(&self.debug_data);
                     }
                 }
             }
