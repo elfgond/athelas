@@ -21,11 +21,11 @@ impl Debugger {
         let debug_data = match DwarfData::from_file(target) {
             Ok(val) => val,
             Err(crate::dwarf_data::Error::ErrorOpeningFile) => {
-                println!("Could not open file {}", target);
+                println!("Could not open file {target}");
                 exit(1);
             }
             Err(crate::dwarf_data::Error::DwarfFormatError(err)) => {
-                println!("could not open file {}: {:?}", target, err);
+                println!("could not open file {target}: {err:?}");
                 exit(1);
             }
         };
@@ -49,7 +49,8 @@ impl Debugger {
             match self.get_next_command() {
                 DebuggerCommand::Run(args) => match &mut self.inferior {
                     Some(inferior) => match inferior.kill() {
-                        Ok(_) => {
+                        Ok(status) => {
+                            println!("{status:?}");
                             self.start_deet(args);
                         }
                         Err(e) => println!("could not kill previous child {e:?}"),
@@ -70,16 +71,16 @@ impl Debugger {
                     if let Some(inferior) = &mut self.inferior {
                         match inferior.kill() {
                             Ok(status) => {
-                                println!("exiting inferior {:?}", status);
+                                println!("exiting inferior {status:?}");
                             }
-                            Err(e) => println!("could not kill previous inferior {:?}", e),
+                            Err(e) => println!("could not kill previous inferior {e:?}"),
                         }
                     };
                     return;
                 }
                 DebuggerCommand::Backtrace => {
                     if let Some(inferior) = &self.inferior {
-                        inferior.print_backtrace(&self.debug_data);
+                        inferior.print_backtrace(&self.debug_data).unwrap()
                     }
                 }
             }
@@ -106,7 +107,7 @@ impl Debugger {
                     panic!("Unexpected I/O error: {:?}", err);
                 }
                 Ok(line) => {
-                    if line.trim().len() == 0 {
+                    if line.trim().is_empty() {
                         continue;
                     }
                     self.readline.add_history_entry(line.as_str());
@@ -133,7 +134,7 @@ impl Debugger {
             self.inferior = Some(inferior);
             // TODO (milestone 1): make the inferior run
             match self.inferior.as_mut().unwrap().cont() {
-                Ok(status) => println!("Child {:?}", status),
+                Ok(status) => println!("Child {status:?}"),
                 Err(_) => panic!("Error continuing program"),
             }
         } else {

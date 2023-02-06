@@ -51,7 +51,7 @@ impl Inferior {
         match waitpid(inferior.pid(), None) {
             Ok(_) => Some(inferior),
             Err(e) => {
-                println!("{:?}", e);
+                println!("{e:?}");
                 None
             }
         }
@@ -86,10 +86,13 @@ impl Inferior {
 
     pub fn kill(&mut self) -> Result<Status, nix::Error> {
         println!("Killing runnig inferior (pid {})", self.pid());
-        if self.child.kill().is_ok() {
-            return self.wait(None);
-        };
-        panic!("Cannot kill inferior")
+        match self.child.kill() {
+            Ok(status) => {
+                println!("{status:?}");
+                self.wait(None)
+            }
+            _ => Err(nix::Error::EALREADY),
+        }
     }
 
     pub fn print_backtrace(&self, debug_data: &DwarfData) -> Result<(), nix::Error> {
