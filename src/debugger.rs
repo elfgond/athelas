@@ -3,6 +3,7 @@ use std::process::exit;
 use crate::debugger_command::DebuggerCommand;
 use crate::dwarf_data::DwarfData;
 use crate::inferior::Inferior;
+use nix::sys::ptrace;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
@@ -131,12 +132,19 @@ impl Debugger {
     fn start_deet(&mut self, args: Vec<String>) {
         if let Some(inferior) = Inferior::new(&self.target, &args) {
             // Create the inferior
-            self.inferior = Some(inferior);
-            // TODO (milestone 1): make the inferior run
-            match self.inferior.as_mut().unwrap().cont() {
-                Ok(status) => println!("Child {status:?}"),
+            // self.inferior = Some(inferior);
+            match inferior.cont() {
+                Ok(status) => {
+                    println!("Child {status:?}");
+                    let regs = ptrace::getregs(inferior.pid()).unwrap();
+                    let line = self.debug_data.get_line_from_addr(regs.rip as usize);
+                    if let Some(line) = line {
+                        println!("Stopped at {line}");
+                    }
+                }
                 Err(_) => panic!("Error continuing program"),
             }
+            self.inferior = Some(inferior)
         } else {
             println!("Error starting subprocess");
         }
