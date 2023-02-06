@@ -1,15 +1,12 @@
 // #![allow(unused)]
 
-use nix::errno::Errno;
 use nix::sys::ptrace;
-use nix::sys::ptrace::Request;
 use nix::sys::signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 use std::os::unix::process::CommandExt;
 use std::process::Child;
 use std::process::Command;
-use std::{mem, ptr};
 
 use crate::dwarf_data::DwarfData;
 
@@ -96,18 +93,32 @@ impl Inferior {
     }
 
     pub fn print_backtrace(&self, debug_data: &DwarfData) -> Result<(), nix::Error> {
-        // unsafe {
-        //     libc::ptrace(lib::, self.pid());
-        // }
-        match ptrace::getregs(self.pid()) {
-            Ok(regs) => println!(
-                "{} ({})",
-                debug_data
-                    .get_function_from_addr(regs.rip as usize)
-                    .unwrap(),
-                debug_data.get_line_from_addr(regs.rip as usize).unwrap()
-            ),
-            Err(e) => println!("{}", e),
+        let regs = ptrace::getregs(self.pid())?;
+        let mut current_stack_frame = regs.rbp as usize;
+        // let stack_pointer = regs.rsp as usize;
+        let mut instruction_ptr = regs.rip as usize;
+        loop {
+            let func_name = debug_data.get_function_from_addr(instruction_ptr);
+            match &func_name {
+                Some(f) => {
+                    println!(
+                        "{} ({})",
+                        f,
+                        debug_data.get_line_from_addr(instruction_ptr).unwrap() // danger of panicing at runtime
+                    );
+                }
+                None => break,
+            }
+            if let Some(func_name) = func_name {
+                if func_name == "main" {
+                    break;
+                }
+            }
+            instruction_ptr =
+                ptrace::read(self.pid(), (current_stack_frame + 8) as ptrace::AddressType)?
+                    as usize;
+            current_stack_frame =
+                ptrace::read(self.pid(), current_stack_frame as ptrace::AddressType)? as usize;
         }
         Ok(())
     }

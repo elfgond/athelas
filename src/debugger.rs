@@ -52,7 +52,7 @@ impl Debugger {
                         Ok(_) => {
                             self.start_deet(args);
                         }
-                        Err(e) => println!("could not kill previous child {:?}", e),
+                        Err(e) => println!("could not kill previous child {e:?}"),
                     },
                     None => self.start_deet(args),
                 },
@@ -60,9 +60,9 @@ impl Debugger {
                     if let Some(inferior) = &self.inferior {
                         match inferior.cont() {
                             Ok(status) => {
-                                println!("Child process {:?}", status)
+                                println!("Child process {status:?}")
                             }
-                            Err(e) => println!("error cannot continue child process: {}", e),
+                            Err(e) => println!("error cannot continue child process: {e}"),
                         }
                     }
                 }
