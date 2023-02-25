@@ -2,8 +2,7 @@ use std::process::exit;
 
 use crate::debugger_command::DebuggerCommand;
 use crate::dwarf_data::DwarfData;
-use crate::inferior::Inferior;
-use nix::sys::ptrace;
+use crate::inferior::{Inferior, Status};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
@@ -49,12 +48,35 @@ impl Debugger {
         loop {
             match self.get_next_command() {
                 DebuggerCommand::Run(args) => match &mut self.inferior {
+                    // if self.inferior.is_some() {}
                     Some(inferior) => match inferior.kill() {
                         Ok(status) => {
-                            println!("{status:?}");
+                            match status {
+                                Status::Exited(exit_code) => {
+                                    println!("Child exited (status {exit_code})");
+                                    self.inferior = None;
+                                }
+                                Status::Signaled(signal) => {
+                                    println!("Child exited due to signal {signal}");
+                                    self.inferior = None;
+                                }
+                                Status::Stopped(signal, rip) => {
+                                    println!("Child Stopped ({signal:?}, {rip})");
+                                    let line = self.debug_data.get_line_from_addr(rip);
+                                    let func = self.debug_data.get_function_from_addr(rip);
+                                    if line.is_some() && func.is_some() {
+                                        println!(
+                                            "Stopped at {} ({})",
+                                            func.unwrap(),
+                                            line.unwrap()
+                                        );
+                                    }
+                                }
+                            }
+                            self.inferior = None;
                             self.start_deet(args);
                         }
-                        Err(e) => println!("could not kill previous child {e:?}"),
+                        Err(_) => self.start_deet(args),
                     },
                     None => self.start_deet(args),
                 },
@@ -131,20 +153,28 @@ impl Debugger {
 
     fn start_deet(&mut self, args: Vec<String>) {
         if let Some(inferior) = Inferior::new(&self.target, &args) {
-            // Create the inferior
-            // self.inferior = Some(inferior);
             match inferior.cont() {
-                Ok(status) => {
-                    println!("Child {status:?}");
-                    let regs = ptrace::getregs(inferior.pid()).unwrap();
-                    let line = self.debug_data.get_line_from_addr(regs.rip as usize);
-                    if let Some(line) = line {
-                        println!("Stopped at {line}");
+                Ok(status) => match status {
+                    Status::Exited(exit_code) => {
+                        println!("Child exited (status {exit_code})");
+                        self.inferior = None;
                     }
-                }
+                    Status::Signaled(signal) => {
+                        println!("Child exited due to signal {signal}");
+                        self.inferior = None;
+                    }
+                    Status::Stopped(signal, rip) => {
+                        println!("Child Stopped ({signal:?}, {rip})");
+                        let line = self.debug_data.get_line_from_addr(rip);
+                        let func = self.debug_data.get_function_from_addr(rip);
+                        if line.is_some() && func.is_some() {
+                            println!("Stopped at {} ({})", func.unwrap(), line.unwrap());
+                        }
+                        self.inferior = Some(inferior);
+                    }
+                },
                 Err(_) => panic!("Error continuing program"),
             }
-            self.inferior = Some(inferior)
         } else {
             println!("Error starting subprocess");
         }

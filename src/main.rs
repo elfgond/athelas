@@ -12,7 +12,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         println!("Usage: {} <target program>", args[0]);
-        std::process::exit(1);
+        std::process::exit(0x100);
     }
     let target = &args[1];
 
