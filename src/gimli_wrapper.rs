@@ -425,7 +425,7 @@ fn dump_exprloc<R: Reader, W: Write>(
                 return Ok(());
             }
             Err(gimli::Error::UnsupportedRegister(register)) => {
-                writeln!(w, "WARNING: unsupported register {}", register)?;
+                writeln!(w, "WARNING: unsupported register {register}")?;
                 return Ok(());
             }
             Err(gimli::Error::UnexpectedEof(_)) => {
@@ -433,7 +433,7 @@ fn dump_exprloc<R: Reader, W: Write>(
                 return Ok(());
             }
             Err(e) => {
-                writeln!(w, "WARNING: unexpected operation parse error: {}", e)?;
+                writeln!(w, "WARNING: unexpected operation parse error: {e}")?;
                 return Ok(());
             }
         }

@@ -85,7 +85,18 @@ impl Debugger {
                     if let Some(inferior) = &self.inferior {
                         match inferior.cont() {
                             Ok(status) => {
-                                println!("Child process {status:?}")
+                                println!("Child process {status:?}");
+                                if let Status::Stopped(_, rip) = status {
+                                    let line = self.debug_data.get_line_from_addr(rip);
+                                    let func = self.debug_data.get_function_from_addr(rip);
+                                    if line.is_some() && func.is_some() {
+                                        println!(
+                                            "Stopped at {} ({})",
+                                            func.unwrap(),
+                                            line.unwrap()
+                                        );
+                                    }
+                                }
                             }
                             Err(e) => println!("error cannot continue child process: {e}"),
                         }
@@ -108,15 +119,25 @@ impl Debugger {
                     }
                 }
                 DebuggerCommand::Break(arg) => {
-                    // let location = Self::parse_address(&arg[1..]).unwrap();
-                    self.breakpoints.push(arg[1..].parse().unwrap());
+                    let addr = self.parse_address(&arg[1..]).unwrap();
+                    self.breakpoints.push(addr);
+                    // check if inferior is running already and borrow as mutable reference
+                    if self.inferior.is_some() {
+                        let inf = self.inferior.as_mut().unwrap();
+                        inf.set_breakpoint(addr).unwrap();
+                    }
+                    // The ref mut part of the pattern means that inferior is a mutable reference to the value inside the Some variant,
+                    // rather than taking ownership of the value.
+                    // if let Some(ref mut inferior) = self.inferior {
+                    //     inferior.set_breakpoint(addr).unwrap();
+                    // }
                 }
             }
         }
     }
 
     #[allow(dead_code)]
-    fn parse_address(addr: &str) -> Option<usize> {
+    fn parse_address(&self, addr: &str) -> Option<usize> {
         let addr_without_0x = if addr.to_lowercase().starts_with("0x") {
             &addr[2..]
         } else {

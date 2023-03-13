@@ -40,7 +40,7 @@ pub struct Inferior {
 impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
-    pub fn new(target: &str, args: &Vec<String>, _breakpoints: &[usize]) -> Option<Inferior> {
+    pub fn new(target: &str, args: &Vec<String>, breakpoints: &[usize]) -> Option<Inferior> {
         let mut cmd = Command::new(target);
         unsafe {
             cmd.pre_exec(child_traceme);
@@ -49,17 +49,28 @@ impl Inferior {
             Ok(c) => c,
             Err(e) => panic!("{}", e),
         };
-        let inferior = Inferior { child };
+        let mut inferior = Inferior { child };
         match inferior.wait(None) {
-            Ok(_) => Some(inferior),
+            Ok(status) => {
+                if let Status::Stopped(sig, _) = status {
+                    if sig == SIGTRAP {
+                        println!("{sig} detected. setting breakpoints if any...");
+                        for addr in breakpoints {
+                            inferior.set_breakpoint(*addr).unwrap();
+                        }
+                    }
+                }
+                Some(inferior)
+            }
             Err(e) => {
                 println!("E: {e:?}");
                 None
             }
         }
+    }
 
-        // let status = inferior.wait(None).ok()?;
-        // println!("{:?}", status);
+    pub fn set_breakpoint(&mut self, addr: usize) -> Result<u8, nix::Error> {
+        self.write_byte(addr, 0xcc)
     }
 
     /// Returns the pid of this inferior.
@@ -73,12 +84,18 @@ impl Inferior {
         Ok(match waitpid(self.pid(), options)? {
             WaitStatus::Exited(_pid, exit_code) => Status::Exited(exit_code),
             WaitStatus::Signaled(_pid, signal, _core_dumped) => {
-                if signal == SIGTRAP {}
+                if signal == SIGTRAP {
+                    println!("SIGTRAP DETECTED");
+                }
                 Status::Signaled(signal)
             }
             WaitStatus::Stopped(_pid, signal) => {
                 let regs = ptrace::getregs(self.pid())?;
                 Status::Stopped(signal, regs.rip as usize)
+            }
+            WaitStatus::PtraceEvent(_pid, signal, _core_dumped) => {
+                println!("{signal} detected");
+                Status::Signaled(signal)
             }
             other => panic!("waitpid returned unexpected status: {:?}", other),
         })
@@ -128,22 +145,26 @@ impl Inferior {
         Ok(())
     }
 
-    fn _align_addr_to_word(addr: usize) -> usize {
-        let aligned = addr & (-(size_of::<usize>() as isize) as usize);
-        println!(
-            "{aligned}: [{}][{}]",
-            size_of::<usize>() as isize,
-            (-(size_of::<usize>() as isize) as usize)
-        );
-        aligned
+    fn align_addr_to_word(&self, addr: usize) -> usize {
+        addr & (-(size_of::<usize>() as isize) as usize)
+        // println!(
+        //     "{aligned}: [{}][{}]",
+        //     size_of::<usize>() as isize,
+        //     (-(size_of::<usize>() as isize) as usize)
+        // );
     }
 
-    fn _write_byte(&mut self, addr: usize, val: u8) -> Result<u8, nix::Error> {
-        let aligned_addr = Self::_align_addr_to_word(addr);
+    // In order to write a byte, you must read a full 8 bytes into a long,
+    // use bitwise arithmetic to substitute the desired byte into that long,
+    // and then write the full long back to the child’s memory.
+    // Additionally, despite the nix crate’s ptrace having a much nicer interface than the ptrace syscall,
+    // it’s still a bit funky to use (it requires some bizarre type conversions).
+    fn write_byte(&mut self, addr: usize, val: u8) -> Result<u8, nix::Error> {
+        let aligned_addr = self.align_addr_to_word(addr);
         let byte_offset = addr - aligned_addr;
         let word = ptrace::read(self.pid(), aligned_addr as ptrace::AddressType)? as u64;
         let orig_byte = (word >> (8 * byte_offset)) & 0xff;
-        let masked_word = word * !(0xff << (8 * byte_offset));
+        let masked_word = word & !(0xff << (8 * byte_offset));
         let updated = masked_word | ((val as u64) << (8 * byte_offset));
         unsafe {
             ptrace::write(
