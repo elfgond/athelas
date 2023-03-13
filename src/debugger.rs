@@ -12,12 +12,12 @@ pub struct Debugger {
     readline: Editor<()>,
     inferior: Option<Inferior>,
     debug_data: DwarfData,
+    breakpoints: Vec<usize>,
 }
 
 impl Debugger {
     /// Initializes the debugger.
     pub fn new(target: &str) -> Debugger {
-        // TODO (milestone 3): initialize the DwarfData
         let debug_data = match DwarfData::from_file(target) {
             Ok(val) => val,
             Err(crate::dwarf_data::Error::ErrorOpeningFile) => {
@@ -29,7 +29,7 @@ impl Debugger {
                 exit(1);
             }
         };
-
+        debug_data.print();
         let history_path = format!("{}/.deet_history", std::env::var("HOME").unwrap());
         let mut readline = Editor::<()>::new();
         // Attempt to load history from ~/.deet_history if it exists
@@ -41,6 +41,7 @@ impl Debugger {
             readline,
             inferior: None,
             debug_data,
+            breakpoints: vec![],
         }
     }
 
@@ -106,8 +107,22 @@ impl Debugger {
                         inferior.print_backtrace(&self.debug_data).unwrap()
                     }
                 }
+                DebuggerCommand::Break(arg) => {
+                    // let location = Self::parse_address(&arg[1..]).unwrap();
+                    self.breakpoints.push(arg[1..].parse().unwrap());
+                }
             }
         }
+    }
+
+    #[allow(dead_code)]
+    fn parse_address(addr: &str) -> Option<usize> {
+        let addr_without_0x = if addr.to_lowercase().starts_with("0x") {
+            &addr[2..]
+        } else {
+            addr
+        };
+        usize::from_str_radix(addr_without_0x, 16).ok()
     }
 
     /// This function prompts the user to enter a command, and continues re-prompting until the user
@@ -152,7 +167,7 @@ impl Debugger {
     }
 
     fn start_deet(&mut self, args: Vec<String>) {
-        if let Some(inferior) = Inferior::new(&self.target, &args) {
+        if let Some(inferior) = Inferior::new(&self.target, &args, &self.breakpoints) {
             match inferior.cont() {
                 Ok(status) => match status {
                     Status::Exited(exit_code) => {

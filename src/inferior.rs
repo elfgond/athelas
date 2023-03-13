@@ -2,8 +2,10 @@
 
 use nix::sys::ptrace;
 use nix::sys::signal;
+use nix::sys::signal::Signal::SIGTRAP;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
+use std::mem::size_of;
 use std::os::unix::process::CommandExt;
 use std::process::Child;
 use std::process::Command;
@@ -38,7 +40,7 @@ pub struct Inferior {
 impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
-    pub fn new(target: &str, args: &Vec<String>) -> Option<Inferior> {
+    pub fn new(target: &str, args: &Vec<String>, _breakpoints: &[usize]) -> Option<Inferior> {
         let mut cmd = Command::new(target);
         unsafe {
             cmd.pre_exec(child_traceme);
@@ -48,7 +50,7 @@ impl Inferior {
             Err(e) => panic!("{}", e),
         };
         let inferior = Inferior { child };
-        match waitpid(inferior.pid(), None) {
+        match inferior.wait(None) {
             Ok(_) => Some(inferior),
             Err(e) => {
                 println!("E: {e:?}");
@@ -70,7 +72,10 @@ impl Inferior {
     pub fn wait(&self, options: Option<WaitPidFlag>) -> Result<Status, nix::Error> {
         Ok(match waitpid(self.pid(), options)? {
             WaitStatus::Exited(_pid, exit_code) => Status::Exited(exit_code),
-            WaitStatus::Signaled(_pid, signal, _core_dumped) => Status::Signaled(signal),
+            WaitStatus::Signaled(_pid, signal, _core_dumped) => {
+                if signal == SIGTRAP {}
+                Status::Signaled(signal)
+            }
             WaitStatus::Stopped(_pid, signal) => {
                 let regs = ptrace::getregs(self.pid())?;
                 Status::Stopped(signal, regs.rip as usize)
@@ -121,5 +126,32 @@ impl Inferior {
                 ptrace::read(self.pid(), current_stack_frame as ptrace::AddressType)? as usize;
         }
         Ok(())
+    }
+
+    fn _align_addr_to_word(addr: usize) -> usize {
+        let aligned = addr & (-(size_of::<usize>() as isize) as usize);
+        println!(
+            "{aligned}: [{}][{}]",
+            size_of::<usize>() as isize,
+            (-(size_of::<usize>() as isize) as usize)
+        );
+        aligned
+    }
+
+    fn _write_byte(&mut self, addr: usize, val: u8) -> Result<u8, nix::Error> {
+        let aligned_addr = Self::_align_addr_to_word(addr);
+        let byte_offset = addr - aligned_addr;
+        let word = ptrace::read(self.pid(), aligned_addr as ptrace::AddressType)? as u64;
+        let orig_byte = (word >> (8 * byte_offset)) & 0xff;
+        let masked_word = word * !(0xff << (8 * byte_offset));
+        let updated = masked_word | ((val as u64) << (8 * byte_offset));
+        unsafe {
+            ptrace::write(
+                self.pid(),
+                aligned_addr as ptrace::AddressType,
+                updated as *mut std::ffi::c_void,
+            )?;
+        }
+        Ok(orig_byte as u8)
     }
 }

@@ -33,7 +33,7 @@ pub fn load_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<
     let borrow_section: &dyn for<'a> Fn(
         &'a borrow::Cow<[u8]>,
     ) -> gimli::EndianSlice<'a, gimli::RunTimeEndian> =
-        &|section| gimli::EndianSlice::new(&*section, endian);
+        &|section| gimli::EndianSlice::new(section, endian);
 
     // Create `EndianSlice`s for all of the sections.
     let dwarf = dwarf_cow.borrow(&borrow_section);
@@ -64,7 +64,7 @@ pub fn load_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<
                             "<unknown>".to_string()
                         }
                     } else {
-                        "<unknown>".to_string()
+                        "<teunknown>".to_string()
                     };
                     compilation_units.push(File {
                         name,
@@ -345,9 +345,16 @@ fn get_attr_value<R: Reader>(
             Ok(DebugValue::Str(format!("{}", s.to_string_lossy()?)))
         }
         gimli::AttributeValue::FileIndex(value) => {
-            write!(w, "0x{:08x}", value)?;
+            write!(w, "0x{value:08x}")?;
             dump_file_index(w, value, unit, dwarf)?;
             Ok(DebugValue::Str(w.to_string()))
+        }
+        gimli::AttributeValue::DebugLineStrRef(offset) => {
+            if let Ok(s) = dwarf.debug_line_str.get_str(offset) {
+                Ok(DebugValue::Str(format!("{}", s.to_string_lossy()?)))
+            } else {
+                Ok(DebugValue::Str(format!("<.debug_str+0x{:08x}>", offset.0)))
+            }
         }
         _ => Ok(DebugValue::NoVal),
     }
@@ -369,7 +376,7 @@ fn dump_file_index<R: Reader, W: Write>(
     let file = match header.file(file) {
         Some(header) => header,
         None => {
-            writeln!(w, "Unable to get header for file {}", file)?;
+            writeln!(w, "Unable to get header for file {file}")?;
             return Ok(());
         }
     };
@@ -382,7 +389,7 @@ fn dump_file_index<R: Reader, W: Write>(
                 write!(w, "{}/", comp_dir.to_string_lossy()?,)?;
             }
         }
-        write!(w, "{}/", directory)?;
+        write!(w, "{directory}/")?;
     }
     write!(
         w,
